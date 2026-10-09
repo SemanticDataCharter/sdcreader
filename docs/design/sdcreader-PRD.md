@@ -56,10 +56,13 @@ Charter package: one implementation, a CLI over it, tests that need no account.
    the four projections depending on it instead of carrying a copy.
 2. **No projection knowledge.** `sdcreader` reads; it never writes CDIF, DCAT or anything else. A function that is
    useful to one projection only stays in that projection. The DCAT-AP graph builder is not here.
-3. **The API is the four copies' API,** unchanged in 0.1.0, so the four switch-overs are mechanical: `from sdcreader
-   import ModelPackage, load_package, fetch_package, read_model, Model, Component, Leaf, Code, PackageError` and the
-   constants. Semantic versioning from there; a change to what `Model` exposes is a minor version, a change to what
-   it means is a major one.
+3. **The API is the four copies' API,** unchanged in the first release, so the four switch-overs are mechanical:
+   `from sdcreader import ModelPackage, load_package, fetch_package, read_model, Model, Component, Leaf, Code,
+   PackageError` and the constants. **Versioning as everything in the Semantic Data Charter is versioned: the
+   leading 4 is the SDC4 reference model** (Tim, 9 October; `sdcreceipt` 4.2.4, `sdcgovernance` 4.2.x, SDCStudio
+   4.14.x). The first release is **4.0.0**; an addition to what `Model` exposes is a minor version, a fix a patch;
+   the major changes only when the reference model does (SDC5 reads as 5.x). The four projection packages, released
+   at 0.1.0 by oversight, move to 4.0.0 in their switch-over pull requests.
 4. **The package format is documented here,** once, as the contract the reader relies on (section 1, "what the
    package format is"), with the SDCStudio issues that affect it.
 5. **Tests need no account and no network:** the NHANES Participant package is the committed fixture; `fetch_package`
@@ -74,12 +77,12 @@ Charter package: one implementation, a CLI over it, tests that need no account.
 exporting the API, `pyproject.toml` (`lxml`; `requests` as the `fetch` extra; `pytest` as `dev`), `samples/
 nhanes-participant/` as the fixture, `tests/` (loading, refusals, the header's Dublin Core with defaults as unset,
 the leaves and codes, the storage pointer, the schema versions), CI, README (what a package is, what the reader
-gives, how the projections use it), `NOTICE`, dev to main by pull request with merge commits. Tag `v0.1.0`.
+gives, how the projections use it), `NOTICE`, dev to main by pull request with merge commits. Tag `v4.0.0`.
 
 ### 3.2 Then: the four switch-overs
-One pull request per projection: delete the copy, add `sdcreader>=0.1,<1` to the dependencies, change the import,
-run the tests, update the README's layout section. Until the PyPI release exists, the dependency is the git tag
-(`sdcreader @ git+https://github.com/SemanticDataCharter/sdcreader@v0.1.0`); after it, the version.
+One pull request per projection: delete the copy, add `sdcreader>=4.0,<5` to the dependencies, change the import,
+set the projection's own version to 4.0.0 (rule 3), run the tests, update the README's layout section. Until the PyPI release exists, the dependency is the git tag
+(`sdcreader @ git+https://github.com/SemanticDataCharter/sdcreader@v4.0.0`); after it, the version.
 
 ### 3.3 Later
 - A small CLI, `sdcreader fetch --ct-id ID DIR` and `sdcreader show DIR` (the leaves, the codes, the header), for
@@ -90,7 +93,7 @@ run the tests, update the README's layout section. Until the PyPI release exists
 
 ## 4. Decisions (proposed; open for Tim)
 1. **Name and layout:** package `sdcreader`, modules `sdcreader.package` and `sdcreader.model`, the `sdcreceipt`
-   layout, version 0.1.0.
+   layout, version **4.0.0** (rule 3).
 2. **PyPI publication by Tim**, as `sdcreceipt` is published, with a release workflow that builds on a `v*` tag and
    publishes through PyPI trusted publishing once the project is registered there; until then the git tag is the
    dependency.
@@ -98,7 +101,7 @@ run the tests, update the README's layout section. Until the PyPI release exists
    `sdcdcatap` as a dependency is a separate decision, not forced by this one.
 4. **The fixture is the NHANES Participant package** (1.3 MB), the same record as every projection, so a reader
    change is proven on the record the projections are proven on.
-5. **No CLI in 0.1.0** (section 3.3), so the first release is the four copies made one and nothing else.
+5. **No CLI in 4.0.0** (section 3.3), so the first release is the four copies made one and nothing else.
 
 ## 5. Pipeline
 `src/sdcreader/` from the copies, then `tests/` against `samples/nhanes-participant/`, then CI, then the tag, then
