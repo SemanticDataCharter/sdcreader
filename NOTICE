@@ -1,0 +1,9 @@
+sdcreader
+Copyright 2026 Axius SDC, Inc.
+
+Licensed under the Apache License, Version 2.0.
+
+The test fixture under samples/nhanes-participant/ is the published package of the NHANES Participant model of the
+FAIR Data Demo (https://github.com/SemanticDataCharter/FAIR_Data_Demo), fetched from SDCStudio's public catalog, a
+Semantic Data Charter model of National Health and Nutrition Examination Survey (CDC) variables; it is used as
+evidence, unchanged.
