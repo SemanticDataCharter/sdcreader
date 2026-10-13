@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sdcreader"
-version = "4.0.0"
-description = "Read a published Semantic Data Charter model's package for projection into other standards (CDIF, DCAT-US, DCAT-AP, HealthDCAT-AP)."
+version = "4.1.0"
+description = "Read a published Semantic Data Charter model's package for projection into other standards (CDIF, DCAT-US, DCAT-AP, HealthDCAT-AP); MCP server included."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Axius SDC, Inc." }]
-keywords = ["sdc", "semantic data charter", "governed data record", "cdif", "dcat", "dcat-ap", "healthdcat-ap", "fair"]
+keywords = ["sdc", "semantic data charter", "governed data record", "cdif", "dcat", "dcat-ap", "healthdcat-ap", "fair", "mcp"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -22,12 +22,21 @@ classifiers = [
 dependencies = [
     # the schema is read for the enumeration definitions and codes and the model's Dublin Core header
     "lxml>=5.0",
+    # fetching a package from SDCStudio's public catalog; a base dependency since 4.1.0 so that `uvx sdcreader`
+    # (the registry's launch) can search and fetch without an extra
+    "requests>=2.31",
 ]
 
 [project.optional-dependencies]
-# Fetching a package from SDCStudio's public catalog needs HTTP; a package already on disk does not.
-fetch = ["requests>=2.31"]
-dev = ["pytest>=8.0", "requests>=2.31"]
+# Kept so `sdcreader[fetch]` keeps installing; HTTP is in the base package since 4.1.0.
+fetch = []
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+# One package, two names over one implementation, matching the other SDC MCP servers: the bare name is what the
+# MCP registry launches (`uvx sdcreader`).
+sdcreader = "sdcreader.mcp_server:main"
+sdcreader-mcp = "sdcreader.mcp_server:main"
 
 [project.urls]
 Homepage = "https://github.com/SemanticDataCharter/sdcreader"

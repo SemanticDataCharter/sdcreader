@@ -3,6 +3,15 @@
 Versions carry the leading 4 of the SDC4 reference model: an addition to what the reader exposes is a minor version, a
 fix a patch, and the major changes only when the reference model does.
 
+## 4.1.0 (2026-10-13)
+
+An MCP server, `sdcreader.mcp_server`, registered as `io.github.SemanticDataCharter/sdcreader`: five read-only tools
+(`find_models`, `describe_model`, `list_leaves`, `list_codes`, `check_package`) over the same functions the library
+exposes; stdio, hand-rolled JSON-RPC, protocol revisions 2025-06-18 and 2025-11-25 negotiated, tool failures returned
+as `isError` results. The catalog host is fixed at start (`--host`); no tool takes a URL. Console scripts `sdcreader`
+and `sdcreader-mcp`. `requests` moves into the base dependencies so `uvx sdcreader` can fetch; the `fetch` extra is
+kept empty for compatibility. `server.json` and a `publish-mcp` release job publish the registry entry on each tag.
+
 ## 4.0.0 (2026-10-09)
 
 The loader and model reader that four projection writers carried as identical copies (`sdc_cdif`, `sdc_dcat3_us`,

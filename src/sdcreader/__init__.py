@@ -12,7 +12,7 @@ from .model import (CLOSE, DC_DEFAULTS, EXACT, HAS_UNIT, IDENTIFIER, LEAF_TYPES,
                     SOURCE, Code, Component, Leaf, Model, enumeration_iri, read_header, read_model)
 from .package import DEFAULT_HOST, ModelPackage, PackageError, fetch_package, load_package
 
-__version__ = "4.0.0"
+__version__ = "4.1.0"
 __all__ = ["ModelPackage", "PackageError", "DEFAULT_HOST", "load_package", "fetch_package", "read_model", "read_header", "enumeration_iri",
            "Model", "Component", "Leaf", "Code", "LEAF_TYPES", "NUMERIC_TYPES", "QUANTIFIED_TYPES", "DC_DEFAULTS", "IDENTIFIER", "SOURCE",
            "PUBLISHER", "EXACT", "CLOSE", "SEE_ALSO", "HAS_UNIT", "__version__"]
