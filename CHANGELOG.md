@@ -3,6 +3,14 @@
 Versions carry the leading 4 of the SDC4 reference model: an addition to what the reader exposes is a minor version, a
 fix a patch, and the major changes only when the reference model does.
 
+## 4.2.0 (2026-10-13)
+
+`sdcreader.mcp`: the MCP scaffold the SDC servers share, lifted out of `sdcreader.mcp_server` so the four projection
+servers (`sdccdif`, `sdcdcatus`, `sdcdcatap`, `sdchealthdcatap`) do not carry copies. `Server` (JSON-RPC 2.0 over
+stdio, protocol negotiation, `isError` tool results, the request guards), `ToolError`, `PackageCache` (the
+`ct_id`-or-`directory` source argument, singular and plural, read once per process), `source_properties`, `int_arg`,
+`str_arg`. The reader's own server is unchanged in behaviour and now built on it.
+
 ## 4.1.0 (2026-10-13)
 
 An MCP server, `sdcreader.mcp_server`, registered as `io.github.SemanticDataCharter/sdcreader`: five read-only tools

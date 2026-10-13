@@ -27,61 +27,38 @@ from that host, or a package directory already on disk.
 `Model.dc()`, so SDCStudio's field defaults ("Universal" coverage, "None"
 relation) come back as null rather than as what the modeler said.
 
-Reuse, do not reimplement: every tool calls the same functions the library
-exposes. If the two interfaces ever describe one model differently, the
-product is broken.
+The protocol handling lives in `sdcreader.mcp`, shared with the projection
+servers. Reuse, do not reimplement: every tool calls the same functions the
+library exposes.
 """
 
 from __future__ import annotations
 
-import json
-import sys
-from pathlib import Path
 from typing import Any
 
 from sdcreader import __version__
-from sdcreader.model import EXACT, IDENTIFIER, PUBLISHER, SEE_ALSO, SOURCE, Model, read_model
-from sdcreader.package import DEFAULT_HOST, ModelPackage, PackageError, fetch_package, load_package
+from sdcreader.mcp import (MCP_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS, PackageCache, Server, ToolError,
+                           int_arg, source_properties)
+from sdcreader.model import EXACT, IDENTIFIER, PUBLISHER, SEE_ALSO, SOURCE
+from sdcreader.package import DEFAULT_HOST, fetch_package  # noqa: F401  (fetch_package is patched by tests)
 
-JSONRPC_VERSION = "2.0"
-
-#: Newest revision this server implements. `initialize` negotiates rather than
-#: asserting, so a client on an older supported revision is honored. The
-#: 2026-07-28 revision removes the initialize handshake and is not claimed.
-MCP_PROTOCOL_VERSION = "2025-11-25"
-SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-11-25")
+__all__ = ["TOOLS", "TOOL_HANDLERS", "MCP_PROTOCOL_VERSION", "SUPPORTED_PROTOCOL_VERSIONS", "main", "run_stdio"]
 
 SERVER_NAME = "sdcreader"
 SERVER_VERSION = __version__
+ISSUES = "https://github.com/SemanticDataCharter/sdcreader/issues"
 
 #: Set once by `main()`, never from tool arguments.
 _HOST: str = DEFAULT_HOST
-
-#: Packages fetched or loaded in this process, by model identifier. A model's
-#: package is immutable once published, so caching it for the life of the
-#: server is safe and keeps a paged walk from re-fetching four files per page.
-_CACHE: dict[str, tuple[ModelPackage, Model]] = {}
+#: The process-wide package cache's storage; a published package is immutable.
+_CACHE: dict = {}
 
 DEFAULT_PAGE = 50
 MAX_PAGE = 200
 DEFAULT_FIND = 20
 MAX_FIND = 100
 
-
-class ReaderToolError(Exception):
-    """A tool failure the calling model can act on: bad input, or a package that does not hold up."""
-
-
-SOURCE_ARGS = {
-    "ct_id": {
-        "type": "string",
-        "description": "The model's identifier (CUID2) in the public catalog; the package is fetched from the host this server was started with.",
-    },
-    "directory": {
-        "type": "string",
-        "description": "A package directory already on disk (dm-<ct>.jsonld and dm-<ct>.xsd, optionally catalog.json and versions.json). Give this or ct_id, not both.",
-    },
-}
+ReaderToolError = ToolError
 
 TOOLS = [
     {
@@ -111,7 +88,7 @@ TOOLS = [
             "semantic links, and the schema URL pinned to the SHA-256 of the bytes "
             "every record is validated against."
         ),
-        "inputSchema": {"type": "object", "properties": dict(SOURCE_ARGS), "additionalProperties": False},
+        "inputSchema": {"type": "object", "properties": source_properties(), "additionalProperties": False},
     },
     {
         "name": "list_leaves",
@@ -123,7 +100,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                **SOURCE_ARGS,
+                **source_properties(),
                 "offset": {"type": "integer", "minimum": 0, "default": 0},
                 "limit": {"type": "integer", "minimum": 1, "maximum": MAX_PAGE, "default": DEFAULT_PAGE},
             },
@@ -139,7 +116,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                **SOURCE_ARGS,
+                **source_properties(),
                 "component": {"type": "string", "description": "The component's identifier (ct_id), as list_leaves reports it."},
             },
             "required": ["component"],
@@ -156,7 +133,7 @@ TOOLS = [
         ),
         "inputSchema": {
             "type": "object",
-            "properties": {"directory": SOURCE_ARGS["directory"]},
+            "properties": {"directory": source_properties()["directory"]},
             "required": ["directory"],
             "additionalProperties": False,
         },
@@ -164,57 +141,28 @@ TOOLS = [
 ]
 
 
-def _package(args: dict[str, Any]) -> tuple[ModelPackage, Model]:
-    ct_id = args.get("ct_id")
-    directory = args.get("directory")
-    if bool(ct_id) == bool(directory):
-        raise ReaderToolError("Give exactly one of `ct_id` (fetched from the catalog) or `directory` (a package on disk).")
-    if ct_id is not None and not isinstance(ct_id, str):
-        raise ReaderToolError("`ct_id` must be a string.")
-    if directory is not None and not isinstance(directory, str):
-        raise ReaderToolError("`directory` must be a string path.")
-    key = ct_id or f"dir:{Path(directory).resolve()}"
-    if key in _CACHE:
-        return _CACHE[key]
-    try:
-        pkg = fetch_package(ct_id, host=_HOST) if ct_id else load_package(directory, host=_HOST)
-        model = read_model(pkg)
-    except PackageError as exc:
-        raise ReaderToolError(str(exc)) from exc
-    except OSError as exc:
-        raise ReaderToolError(f"Could not read the package: {exc}") from exc
-    _CACHE[key] = (pkg, model)
-    return pkg, model
+def _cache() -> PackageCache:
+    # Built per call so a test that swaps `_HOST` or patches `fetch_package` on this module is honored; the storage
+    # dict is shared, so a package is still read once per process.
+    import sdcreader.mcp_server as me
 
-
-def _int(args: dict[str, Any], name: str, default: int, lo: int, hi: int) -> int:
-    v = args.get(name, default)
-    if isinstance(v, bool) or not isinstance(v, int):
-        raise ReaderToolError(f"`{name}` must be an integer.")
-    if v < lo or v > hi:
-        raise ReaderToolError(f"`{name}` must be between {lo} and {hi}.")
-    return v
+    return PackageCache(host=_HOST, storage=_CACHE, fetcher=lambda ct_id, host: me.fetch_package(ct_id, host=host))
 
 
 def _links(component) -> dict[str, list[str]]:
-    """The component's semantic links by short predicate name, only those present."""
     names = {IDENTIFIER: "identifier", SOURCE: "source", PUBLISHER: "publisher", EXACT: "exactMatch", SEE_ALSO: "seeAlso"}
-    out = {}
-    for pred, short in names.items():
-        if component.links.get(pred):
-            out[short] = list(component.links[pred])
-    return out
+    return {short: list(component.links[pred]) for pred, short in names.items() if component.links.get(pred)}
 
 
 def _handle_find_models(args: dict[str, Any]) -> Any:
-    import requests  # a base dependency since 4.1.0, so the registry's `uvx sdcreader` can search
+    import requests
 
     search = args.get("search", "")
     project = args.get("project", "")
     if not isinstance(search, str) or not isinstance(project, str):
-        raise ReaderToolError("`search` and `project` must be strings.")
-    page = _int(args, "page", 1, 1, 10_000)
-    page_size = _int(args, "page_size", DEFAULT_FIND, 1, MAX_FIND)
+        raise ToolError("`search` and `project` must be strings.")
+    page = int_arg(args, "page", 1, 1, 10_000)
+    page_size = int_arg(args, "page_size", DEFAULT_FIND, 1, MAX_FIND)
     params = {"format": "json", "page": page, "page_size": page_size}
     if search:
         params["search"] = search
@@ -223,32 +171,26 @@ def _handle_find_models(args: dict[str, Any]) -> Any:
     try:
         r = requests.get(f"{_HOST}/api/v1/catalog/dms/", params=params, timeout=60)
     except requests.RequestException as exc:
-        raise ReaderToolError(f"The catalog could not be reached: {exc}") from exc
+        raise ToolError(f"The catalog could not be reached: {exc}") from exc
     if r.status_code != 200:
-        raise ReaderToolError(f"The catalog answered HTTP {r.status_code}.")
+        raise ToolError(f"The catalog answered HTTP {r.status_code}.")
     data = r.json()
-    results = [
-        {
-            "ct_id": m.get("ct_id"),
-            "title": m.get("title"),
-            "project": m.get("project_name"),
-            "description": (m.get("description") or "")[:300],
-            "updated": m.get("updated"),
-        }
-        for m in data.get("results", [])
-    ]
     return {
         "host": _HOST,
         "count": data.get("count"),
         "page": page,
         "page_size": page_size,
-        "models": results,
+        "models": [
+            {"ct_id": m.get("ct_id"), "title": m.get("title"), "project": m.get("project_name"),
+             "description": (m.get("description") or "")[:300], "updated": m.get("updated")}
+            for m in data.get("results", [])
+        ],
         "hint": "Pass a ct_id to describe_model. Models are listed only from public projects.",
     }
 
 
 def _handle_describe_model(args: dict[str, Any]) -> Any:
-    pkg, model = _package(args)
+    pkg, model = _cache().one(args)
     by_type: dict[str, int] = {}
     for leaf in model.leaves:
         by_type[leaf.component.sdc_type] = by_type.get(leaf.component.sdc_type, 0) + 1
@@ -279,48 +221,33 @@ def _handle_describe_model(args: dict[str, Any]) -> Any:
 
 
 def _handle_list_leaves(args: dict[str, Any]) -> Any:
-    pkg, model = _package(args)
-    offset = _int(args, "offset", 0, 0, 10_000_000)
-    limit = _int(args, "limit", DEFAULT_PAGE, 1, MAX_PAGE)
+    pkg, model = _cache().one(args)
+    offset = int_arg(args, "offset", 0, 0, 10_000_000)
+    limit = int_arg(args, "limit", DEFAULT_PAGE, 1, MAX_PAGE)
     page = model.leaves[offset : offset + limit]
-    leaves = []
-    for leaf in page:
-        c = leaf.component
-        leaves.append(
-            {
-                "position": leaf.position,
-                "slug": leaf.slug,
-                "ct_id": c.ct_id,
-                "label": c.label,
-                "sdc_type": c.sdc_type,
-                "data_type": c.data_type,
-                "path": [p.label for p in leaf.path],
-                "description": c.description,
-                "constraints": c.constraints,
-                "codes": len(model.codes.get(c.ct_id, [])),
-                "links": _links(c),
-            }
-        )
+    leaves = [
+        {
+            "position": leaf.position, "slug": leaf.slug, "ct_id": leaf.component.ct_id, "label": leaf.component.label,
+            "sdc_type": leaf.component.sdc_type, "data_type": leaf.component.data_type, "path": [p.label for p in leaf.path],
+            "description": leaf.component.description, "constraints": leaf.component.constraints,
+            "codes": len(model.codes.get(leaf.component.ct_id, [])), "links": _links(leaf.component),
+        }
+        for leaf in page
+    ]
     return {
-        "ct_id": model.ct_id,
-        "title": model.title,
-        "total": len(model.leaves),
-        "offset": offset,
-        "limit": limit,
-        "returned": len(leaves),
-        "next_offset": offset + limit if offset + limit < len(model.leaves) else None,
-        "leaves": leaves,
+        "ct_id": model.ct_id, "title": model.title, "total": len(model.leaves), "offset": offset, "limit": limit,
+        "returned": len(leaves), "next_offset": offset + limit if offset + limit < len(model.leaves) else None, "leaves": leaves,
     }
 
 
 def _handle_list_codes(args: dict[str, Any]) -> Any:
-    pkg, model = _package(args)
+    pkg, model = _cache().one(args)
     comp_id = args.get("component")
     if not isinstance(comp_id, str) or not comp_id:
-        raise ReaderToolError("`component` must be a component identifier (ct_id).")
+        raise ToolError("`component` must be a component identifier (ct_id).")
     comp = model.components.get(comp_id)
     if comp is None:
-        raise ReaderToolError(f"No component {comp_id!r} in model {model.ct_id}. list_leaves reports the identifiers.")
+        raise ToolError(f"No component {comp_id!r} in model {model.ct_id}. list_leaves reports the identifiers.")
     codes = model.codes.get(comp_id, [])
     return {
         "ct_id": model.ct_id,
@@ -332,24 +259,21 @@ def _handle_list_codes(args: dict[str, Any]) -> Any:
 
 
 def _handle_check_package(args: dict[str, Any]) -> Any:
+    from sdcreader.package import PackageError, load_package
+
     directory = args.get("directory")
     if not isinstance(directory, str) or not directory:
-        raise ReaderToolError("`directory` must be a string path.")
+        raise ToolError("`directory` must be a string path.")
     try:
         pkg = load_package(directory, host=_HOST)
     except PackageError as exc:
         return {"ok": False, "directory": directory, "error": str(exc)}
     except OSError as exc:
-        raise ReaderToolError(f"Could not read the package: {exc}") from exc
+        raise ToolError(f"Could not read the package: {exc}") from exc
     return {
-        "ok": True,
-        "directory": directory,
-        "ct_id": pkg.ct_id,
-        "schema_sha256": pkg.sha256,
-        "schema_url_pinned": pkg.schema_url_pinned,
-        "published_current_sha256": pkg.versions.get("current_sha256"),
-        "versions_present": bool(pkg.versions),
-        "catalog_present": bool(pkg.catalog),
+        "ok": True, "directory": directory, "ct_id": pkg.ct_id, "schema_sha256": pkg.sha256,
+        "schema_url_pinned": pkg.schema_url_pinned, "published_current_sha256": pkg.versions.get("current_sha256"),
+        "versions_present": bool(pkg.versions), "catalog_present": bool(pkg.catalog),
     }
 
 
@@ -362,114 +286,25 @@ TOOL_HANDLERS = {
 }
 
 
-def _jsonrpc_response(id: Any, result: Any) -> dict:
-    return {"jsonrpc": JSONRPC_VERSION, "id": id, "result": result}
-
-
-def _jsonrpc_error(id: Any, code: int, message: str, data: Any = None) -> dict:
-    error = {"code": code, "message": message}
-    if data is not None:
-        error["data"] = data
-    return {"jsonrpc": JSONRPC_VERSION, "id": id, "error": error}
+def _server() -> Server:
+    return Server(
+        name=SERVER_NAME, version=SERVER_VERSION, tools=TOOLS, handlers=TOOL_HANDLERS, issues_url=ISSUES,
+        instructions=(
+            "Read published Semantic Data Charter models. `find_models` searches "
+            f"the public catalog at {_HOST}; `describe_model`, `list_leaves` and "
+            "`list_codes` read one model by its ct_id from that host or from a "
+            "package directory on disk; `check_package` verifies a directory. "
+            "All tools are read-only and need no account. No tool takes a URL."
+        ),
+    )
 
 
 def _handle_request(request: Any) -> dict | None:
-    """Handle one JSON-RPC 2.0 request. Returns a response, or None for a notification."""
-    if not isinstance(request, dict):
-        return _jsonrpc_error(None, -32600, "Invalid request: expected a JSON object.")
-    method = request.get("method", "")
-    params = request.get("params", {})
-    req_id = request.get("id")
-    if params is None:
-        params = {}
-    if not isinstance(params, dict):
-        return _jsonrpc_error(req_id, -32600, "Invalid request: `params` must be an object.")
-
-    if method == "initialize":
-        requested = params.get("protocolVersion")
-        negotiated = requested if requested in SUPPORTED_PROTOCOL_VERSIONS else MCP_PROTOCOL_VERSION
-        return _jsonrpc_response(
-            req_id,
-            {
-                "protocolVersion": negotiated,
-                "capabilities": {"tools": {"listChanged": False}},
-                "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
-                "instructions": (
-                    "Read published Semantic Data Charter models. `find_models` searches "
-                    f"the public catalog at {_HOST}; `describe_model`, `list_leaves` and "
-                    "`list_codes` read one model by its ct_id from that host or from a "
-                    "package directory on disk; `check_package` verifies a directory. "
-                    "All tools are read-only and need no account. No tool takes a URL."
-                ),
-            },
-        )
-
-    elif method == "notifications/initialized":
-        return None
-
-    elif method == "tools/list":
-        return _jsonrpc_response(req_id, {"tools": TOOLS})
-
-    elif method == "tools/call":
-        tool_name = params.get("name", "")
-        tool_args = params.get("arguments", {})
-        if tool_args is None:
-            tool_args = {}
-        if not isinstance(tool_args, dict):
-            return _jsonrpc_error(req_id, -32602, "Invalid params: `arguments` must be an object.")
-        handler = TOOL_HANDLERS.get(tool_name)
-        if handler is None:
-            return _jsonrpc_error(req_id, -32601, f"Unknown tool: {tool_name}")
-        try:
-            result = handler(tool_args)
-            return _jsonrpc_response(req_id, {"content": [{"type": "text", "text": json.dumps(result, default=str)}]})
-        except ReaderToolError as exc:
-            # SEP-1303: a failure the model can correct is a tool error in the
-            # result, not a protocol error it would never see.
-            return _jsonrpc_response(req_id, {"content": [{"type": "text", "text": f"Tool execution error: {exc}"}], "isError": True})
-        except Exception as exc:
-            return _jsonrpc_response(
-                req_id,
-                {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": (
-                                "Tool execution error: the server could not process this input "
-                                f"({type(exc).__name__}). This is a defect worth reporting at "
-                                "https://github.com/SemanticDataCharter/sdcreader/issues"
-                            ),
-                        }
-                    ],
-                    "isError": True,
-                },
-            )
-
-    elif method == "ping":
-        return _jsonrpc_response(req_id, {})
-
-    else:
-        if req_id is not None:
-            return _jsonrpc_error(req_id, -32601, f"Method not found: {method}")
-        return None
+    return _server().handle(request)
 
 
 def run_stdio() -> None:
-    """One JSON-RPC message per line on stdin, one response per line on stdout. stdio and no SDK."""
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            request = json.loads(line)
-        except json.JSONDecodeError as exc:
-            sys.stdout.write(json.dumps(_jsonrpc_error(None, -32700, f"Parse error: {exc}")) + "\n")
-            sys.stdout.flush()
-            continue
-        response = _handle_request(request)
-        if response is not None:
-            sys.stdout.write(json.dumps(response) + "\n")
-            sys.stdout.flush()
+    _server().run_stdio()
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -479,14 +314,8 @@ def main(argv: list[str] | None = None) -> None:
     global _HOST
 
     parser = argparse.ArgumentParser(prog="sdcreader-mcp", description="MCP stdio server for reading published Semantic Data Charter models.")
-    parser.add_argument(
-        "--host",
-        default=DEFAULT_HOST,
-        help=(
-            "The SDCStudio host whose public catalog is read, fixed here so a caller "
-            f"cannot redirect the server. Default {DEFAULT_HOST}."
-        ),
-    )
+    parser.add_argument("--host", default=DEFAULT_HOST,
+                        help=f"The SDCStudio host whose public catalog is read, fixed here so a caller cannot redirect the server. Default {DEFAULT_HOST}.")
     args = parser.parse_args(argv)
     _HOST = args.host.rstrip("/")
     run_stdio()
