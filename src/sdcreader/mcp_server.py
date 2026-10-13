@@ -46,7 +46,7 @@ from sdcreader.package import DEFAULT_HOST, ModelPackage, PackageError, fetch_pa
 JSONRPC_VERSION = "2.0"
 
 #: Newest revision this server implements. `initialize` negotiates rather than
-#: asserting, so a client on an older supported revision is honoured. The
+#: asserting, so a client on an older supported revision is honored. The
 #: 2026-07-28 revision removes the initialize handshake and is not claimed.
 MCP_PROTOCOL_VERSION = "2025-11-25"
 SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-11-25")
