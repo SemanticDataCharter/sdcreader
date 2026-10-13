@@ -1,0 +1,20 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.SemanticDataCharter/sdcreader",
+  "description": "Read published Semantic Data Charter models: catalog search, record structure, codes, pinned schema.",
+  "repository": {
+    "url": "https://github.com/SemanticDataCharter/sdcreader",
+    "source": "github"
+  },
+  "version": "4.1.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "sdcreader",
+      "version": "4.1.0",
+      "runtimeHint": "uvx",
+      "transport": { "type": "stdio" }
+    }
+  ]
+}

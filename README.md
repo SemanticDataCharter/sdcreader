@@ -1,5 +1,7 @@
 # sdcreader
 
+<!-- mcp-name: io.github.SemanticDataCharter/sdcreader -->
+
 Read a published Semantic Data Charter model's package for projection into other standards.
 
 A projection describes a model's governed data records in another standard's terms: CDIF, DCAT-US 3.0, DCAT-AP
@@ -9,8 +11,7 @@ any projection in it. The four projection writers (`sdc_cdif`, `sdc_dcat3_us`, `
 carried it as identical copies until this package.
 
 ```
-pip install sdcreader            # or, until the PyPI release: pip install "sdcreader @ git+https://github.com/SemanticDataCharter/sdcreader@v4.0.0"
-pip install "sdcreader[fetch]"   # with HTTP, to fetch a package from the public catalog
+pip install sdcreader            # the reader, with HTTP for fetching from the public catalog (since 4.1.0 no extra is needed)
 ```
 
 ```python
@@ -63,6 +64,29 @@ which is complete.
 - Constants: the leaf, numeric and quantified types; the predicate IRIs `IDENTIFIER`, `SOURCE`, `PUBLISHER`, `EXACT`,
   `CLOSE`, `SEE_ALSO`, `HAS_UNIT`; `DC_DEFAULTS`.
 
+## MCP server
+
+`sdcreader` is also an MCP server, registered as `io.github.SemanticDataCharter/sdcreader`, so an assistant can read a
+published model the way `sdcvalidator`, `sdcgovernance` and `sdcreceipt` let it validate, govern and settle a record.
+stdio, no SDK, no account, read-only.
+
+```
+uvx sdcreader                    # or: sdcreader-mcp, or python -m sdcreader.mcp_server
+uvx sdcreader --host https://your-sdcstudio.example   # a sovereign SDCStudio's public catalog
+```
+
+| Tool | Does |
+|---|---|
+| `find_models` | search the public catalog by text, or list a public project's models by name |
+| `describe_model` | one model: title, project, root record, leaf and component counts by type, Dublin Core with SDCStudio's defaults as null, the schema URL pinned to its SHA-256 |
+| `list_leaves` | the leaves in document order with path, type, constraints, code count and identity links, paged |
+| `list_codes` | one component's enumerated values with IRI, definition and code system |
+| `check_package` | the reader's integrity check on a package directory |
+
+Each tool takes a `ct_id` (fetched from the host the server was started with) or a package `directory` on disk.
+No tool takes a URL: the host is fixed at start, so a caller cannot point the server elsewhere. Every tool calls the
+same functions as the library; the two interfaces describe one model the same way.
+
 ## Tests
 
 ```
@@ -78,6 +102,6 @@ The fixture is the NHANES Participant package of the FAIR Data Demo, the record 
 The leading 4 is the SDC4 reference model, as with every Semantic Data Charter package. An addition to what the
 reader exposes is a minor version, a fix a patch; the major changes only when the reference model does.
 
-## Licence
+## License
 
 Apache-2.0 (see `LICENSE`, `NOTICE`).
