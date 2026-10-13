@@ -6,15 +6,17 @@
     "url": "https://github.com/SemanticDataCharter/sdcreader",
     "source": "github"
   },
-  "version": "4.1.0",
+  "version": "4.2.0",
   "packages": [
     {
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "sdcreader",
-      "version": "4.1.0",
+      "version": "4.2.0",
       "runtimeHint": "uvx",
-      "transport": { "type": "stdio" }
+      "transport": {
+        "type": "stdio"
+      }
     }
   ]
 }
