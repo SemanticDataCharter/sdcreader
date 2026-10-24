@@ -3,6 +3,18 @@
 Versions carry the leading 4 of the SDC4 reference model: an addition to what the reader exposes is a minor version, a
 fix a patch, and the major changes only when the reference model does.
 
+## 4.3.1 (2026-10-24)
+
+Fix: a recovery Exceptional Value beside an ordinal, a link, a file or an interval was read as one written at the
+source, and its rejected value was not offered as `rejected`. The reader recognized a value element only by a name
+ending in `-value` or starting with `xdtemporal-`; it now uses `VALUE_ELEMENTS`, every value element the SDC4
+reference model defines (`ordinal`, `symbol`, `link`, `uri`, `media-content`, `lower`, `upper` among them). Found while
+building `sdc-mapper`'s value typing against sdc4.xsd.
+
+`ExceptionalValue.origin` is documented as what it is: inferred from the record's shape. A published model may require
+the value element, as SDCStudio's generated schemas do, and then an Exceptional Value written at the source sits beside
+a value as well; a caller that inserted Exceptional Values itself (sdc-mapper's gate) knows the origin for certain.
+
 ## 4.3.0 (2026-10-24)
 
 `sdcreader.record`: the reader reads a Governed Data Record itself, for record-level mappers (`sdc-mapper`).

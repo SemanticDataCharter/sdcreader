@@ -128,3 +128,20 @@ def test_context_elements_are_kept_apart_from_the_value(model):
     r = read_record(etree.tostring(tree), model)
     v = next(v for v in r.values if v.context)
     assert v.context == {"vtb": "2026-01-01T00:00:00"} and "vtb" not in v.elements
+
+
+@pytest.mark.parametrize("sdc_type, value_el", [("XdOrdinal", "ordinal"), ("XdLink", "link"), ("XdFile", "uri"),
+                                                ("XdInterval", "lower"), ("XdBoolean", "true-value")])
+def test_recovery_is_recognized_for_every_value_element(model, sdc_type, value_el):
+    """4.3.1: a recovery Exceptional Value beside a value whose element does not end in -value (an ordinal, a link,
+    a file, an interval) was read as written at the source, and its rejected value was lost."""
+    from sdcreader.record import VALUE_ELEMENTS, _value
+    from sdcreader.model import Component
+    assert value_el in VALUE_ELEMENTS
+    el = etree.Element(f"{{{SDC4}}}ms-x")
+    etree.SubElement(el, "label").text = "L"
+    etree.SubElement(el, f"{{{SDC4}}}INV").append(etree.Element("ev-name"))
+    etree.SubElement(el, value_el).text = "bad"
+    comp = Component(ct_id="x", sdc_type=sdc_type, label="L", description="", data_type="", constraints={}, links={})
+    v = _value(el, comp, [], 0, 0)
+    assert v.exceptional.origin == "recovery" and v.rejected == {value_el: "bad"}
