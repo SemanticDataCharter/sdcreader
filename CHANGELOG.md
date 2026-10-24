@@ -3,6 +3,18 @@
 Versions carry the leading 4 of the SDC4 reference model: an addition to what the reader exposes is a minor version, a
 fix a patch, and the major changes only when the reference model does.
 
+## 4.3.0 (2026-10-24)
+
+`sdcreader.record`: the reader reads a Governed Data Record itself, for record-level mappers (`sdc-mapper`).
+`read_record(source, model)` parses the XML instance, refuses a record of another model, passes through the adapter
+elements a cluster's members sit in, and returns a `Record` (the record's attributes and its values in document
+order) of `RecordValue`s (component, path of clusters, occurrence, position, the value elements as held, nested where
+the record nests them, and the per-value context). Exceptional Values (the sixteen ISO 21090 null flavors of the SDC4
+reference model) are read with their origin: `source` when written in place of the value, `recovery` when
+sdcvalidator inserted one beside a value that failed its constraint, which stays available as `rejected`. Read across
+HalvorsenDemo's 593 generated records (129,628 values, eight models) with every value populated. MCP tool
+`read_record`; a second fixture, a HalvorsenDemo Credit Note record and its model's package.
+
 ## 4.2.0 (2026-10-13)
 
 `sdcreader.mcp`: the MCP scaffold the SDC servers share, lifted out of `sdcreader.mcp_server` so the four projection

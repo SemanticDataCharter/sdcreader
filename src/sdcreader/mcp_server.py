@@ -12,11 +12,13 @@ published model in the public catalog, read its record structure, its
 enumerated values with their codes and definitions, its Dublin Core as the
 modeler wrote it, and the pinned schema URL, with no account anywhere.
 
-**Five tools, read-only.** `find_models` searches the public catalog.
+**Six tools, read-only.** `find_models` searches the public catalog.
 `describe_model` summarizes one model. `list_leaves` walks its leaves in
 document order, paged, because a model can have more than a thousand.
 `list_codes` gives one component's enumerated values. `check_package` runs the
-reader's integrity check on a package directory.
+reader's integrity check on a package directory. `read_record` (4.3.0) reads a
+Governed Data Record on disk against its model: the record's attributes and
+each value with its component, paged, Exceptional Values included.
 
 **No tool takes a URL.** The catalog host is fixed when the server starts
 (`--host`, default SDCStudio's public catalog), so a caller cannot point this
@@ -120,6 +122,27 @@ TOOLS = [
                 "component": {"type": "string", "description": "The component's identifier (ct_id), as list_leaves reports it."},
             },
             "required": ["component"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "read_record",
+        "description": (
+            "Read a Governed Data Record (an XML file on disk) against its model: the record's attributes and each "
+            "value in document order with its component, path of clusters, elements, context and any Exceptional "
+            "Value (ISO 21090 code, name, and whether it was written at the source or inserted by recovery beside a "
+            "rejected value). The model is the one the record names, fetched by its identifier unless ct_id or "
+            "directory is given. Paged. Does not validate the record."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "record": {"type": "string", "description": "Path to the record's XML file on disk."},
+                **source_properties(),
+                "offset": {"type": "integer", "minimum": 0, "default": 0},
+                "limit": {"type": "integer", "minimum": 1, "maximum": MAX_PAGE, "default": DEFAULT_PAGE},
+            },
+            "required": ["record"],
             "additionalProperties": False,
         },
     },
@@ -258,6 +281,49 @@ def _handle_list_codes(args: dict[str, Any]) -> Any:
     }
 
 
+def _handle_read_record(args: dict[str, Any]) -> Any:
+    import re
+    from pathlib import Path
+
+    from sdcreader.record import RecordError, read_record
+
+    path = args.get("record")
+    if not isinstance(path, str) or not path:
+        raise ToolError("`record` must be a path to the record's XML file.")
+    try:
+        data = Path(path).read_bytes()
+    except OSError as exc:
+        raise ToolError(f"Could not read the record: {exc}") from exc
+    source = {k: args[k] for k in ("ct_id", "directory") if args.get(k)}
+    if not source:
+        m = re.search(rb"<[A-Za-z0-9_]+:dm-([a-z0-9]{24})[\s>]", data[:4000])
+        if not m:
+            raise ToolError("The record does not name a model (no sdc4:dm-<ct_id> root); give ct_id or directory.")
+        source = {"ct_id": m.group(1).decode()}
+    pkg, model = _cache().one(source)
+    try:
+        record = read_record(data, model)
+    except RecordError as exc:
+        raise ToolError(str(exc)) from exc
+    offset = int_arg(args, "offset", 0, 0, 10_000_000)
+    limit = int_arg(args, "limit", DEFAULT_PAGE, 1, MAX_PAGE)
+    page = record.values[offset : offset + limit]
+    values = [
+        {
+            "position": v.position, "ct_id": v.component.ct_id, "label": v.component.label, "sdc_type": v.component.sdc_type,
+            "path": [p.label for p in v.path], "occurrence": v.occurrence, "elements": v.elements, "context": v.context,
+            "exceptional": ({"code": v.exceptional.code, "name": v.exceptional.name, "origin": v.exceptional.origin}
+                            if v.exceptional else None),
+        }
+        for v in page
+    ]
+    return {
+        "ct_id": model.ct_id, "title": model.title, "schema_sha256": pkg.sha256, "attributes": record.attributes,
+        "total": len(record.values), "exceptional": len(record.exceptional), "offset": offset, "limit": limit,
+        "returned": len(values), "next_offset": offset + limit if offset + limit < len(record.values) else None, "values": values,
+    }
+
+
 def _handle_check_package(args: dict[str, Any]) -> Any:
     from sdcreader.package import PackageError, load_package
 
@@ -283,6 +349,7 @@ TOOL_HANDLERS = {
     "list_leaves": _handle_list_leaves,
     "list_codes": _handle_list_codes,
     "check_package": _handle_check_package,
+    "read_record": _handle_read_record,
 }
 
 
@@ -293,7 +360,8 @@ def _server() -> Server:
             "Read published Semantic Data Charter models. `find_models` searches "
             f"the public catalog at {_HOST}; `describe_model`, `list_leaves` and "
             "`list_codes` read one model by its ct_id from that host or from a "
-            "package directory on disk; `check_package` verifies a directory. "
+            "package directory on disk; `check_package` verifies a directory; "
+            "`read_record` reads a Governed Data Record on disk against its model. "
             "All tools are read-only and need no account. No tool takes a URL."
         ),
     )
