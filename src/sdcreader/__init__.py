@@ -14,10 +14,10 @@ to the component that defines it, Exceptional Values included, for record-level 
 from .model import (CLOSE, DC_DEFAULTS, EXACT, HAS_UNIT, IDENTIFIER, LEAF_TYPES, NUMERIC_TYPES, PUBLISHER, QUANTIFIED_TYPES, SEE_ALSO,
                     SOURCE, Code, Component, Leaf, Model, enumeration_iri, read_header, read_model)
 from .package import DEFAULT_HOST, ModelPackage, PackageError, fetch_package, load_package
-from .record import CONTEXT_ELEMENTS, EXCEPTIONAL_VALUES, RECORD_ATTRIBUTES, ExceptionalValue, Record, RecordError, RecordValue, read_record
+from .record import CONTEXT_ELEMENTS, EXCEPTIONAL_VALUES, RECORD_ATTRIBUTES, VALUE_ELEMENTS, ExceptionalValue, Record, RecordError, RecordValue, read_record
 
-__version__ = "4.3.0"
+__version__ = "4.3.1"
 __all__ = ["ModelPackage", "PackageError", "DEFAULT_HOST", "load_package", "fetch_package", "read_model", "read_header", "enumeration_iri",
            "Model", "Component", "Leaf", "Code", "LEAF_TYPES", "NUMERIC_TYPES", "QUANTIFIED_TYPES", "DC_DEFAULTS", "IDENTIFIER", "SOURCE",
            "PUBLISHER", "EXACT", "CLOSE", "SEE_ALSO", "HAS_UNIT", "read_record", "Record", "RecordValue", "RecordError", "ExceptionalValue",
-           "EXCEPTIONAL_VALUES", "RECORD_ATTRIBUTES", "CONTEXT_ELEMENTS", "__version__"]
+           "EXCEPTIONAL_VALUES", "RECORD_ATTRIBUTES", "CONTEXT_ELEMENTS", "VALUE_ELEMENTS", "__version__"]

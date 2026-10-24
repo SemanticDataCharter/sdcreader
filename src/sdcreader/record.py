@@ -39,6 +39,18 @@ RECORD_ATTRIBUTES = ("dm-label", "dm-language", "dm-encoding", "creation_timesta
 #: Per-value context elements: what the record says about a value rather than the value itself.
 CONTEXT_ELEMENTS = ("act", "vtb", "vte", "tr", "modified", "latitude", "longitude")
 
+#: The elements that hold a value, by the SDC4 reference model (sdc4.xsd), for every value type. A recovery Exceptional
+#: Value stands beside one of these; one written at the source stands in place of them. Units, language, magnitude
+#: status, accuracy, reference ranges and a link's relation describe a value and are not in this set.
+VALUE_ELEMENTS = frozenset({
+    "xdstring-value", "xdtoken-value", "true-value", "false-value",
+    "xdcount-value", "xdquantity-value", "xdfloat-value", "xddouble-value",
+    "xdtemporal-date", "xdtemporal-time", "xdtemporal-datetime", "xdtemporal-duration", "xdtemporal-year",
+    "xdtemporal-year-month", "xdtemporal-month", "xdtemporal-month-day", "xdtemporal-day",
+    "ordinal", "symbol", "link", "uri", "media-content", "lower", "upper",
+    "xdstringlist-value", "xdtokenlist-value", "xddecimallist-value", "xdintegerlist-value",
+})
+
 
 class RecordError(Exception):
     pass
@@ -173,7 +185,7 @@ def _value(el, comp: Component, path: list[Component], occurrence: int, position
             elements[n] = _nested(c)
     exceptional = None
     if ev_code:
-        value_present = any(k.endswith("-value") or k.startswith("xdtemporal-") for k in elements)
+        value_present = any(k in VALUE_ELEMENTS for k in elements)
         exceptional = ExceptionalValue(code=ev_code, name=EXCEPTIONAL_VALUES[ev_code],
                                        origin="recovery" if value_present else "source")
     return RecordValue(component=comp, path=path, occurrence=occurrence, position=position, elements=elements,
