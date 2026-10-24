@@ -60,7 +60,11 @@ class RecordError(Exception):
 class ExceptionalValue:
     code: str              # "ASKR"
     name: str              # "Asked and Refused"
-    origin: str            # "source": in place of the value; "recovery": beside a value that failed its constraint
+    origin: str            # "source": in place of the value; "recovery": beside a value that failed its constraint.
+                           # Inferred from the record's shape, so a best guess: a published model may require the
+                           # value element (SDCStudio's generated schemas do, though the reference model leaves it
+                           # optional), and then a source Exceptional Value sits beside a value too. Whoever inserted
+                           # Exceptional Values (a validator's recovery) knows the origin for certain.
 
 
 @dataclass

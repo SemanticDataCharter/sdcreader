@@ -11,6 +11,10 @@ ending in `-value` or starting with `xdtemporal-`; it now uses `VALUE_ELEMENTS`,
 reference model defines (`ordinal`, `symbol`, `link`, `uri`, `media-content`, `lower`, `upper` among them). Found while
 building `sdc-mapper`'s value typing against sdc4.xsd.
 
+`ExceptionalValue.origin` is documented as what it is: inferred from the record's shape. A published model may require
+the value element, as SDCStudio's generated schemas do, and then an Exceptional Value written at the source sits beside
+a value as well; a caller that inserted Exceptional Values itself (sdc-mapper's gate) knows the origin for certain.
+
 ## 4.3.0 (2026-10-24)
 
 `sdcreader.record`: the reader reads a Governed Data Record itself, for record-level mappers (`sdc-mapper`).
