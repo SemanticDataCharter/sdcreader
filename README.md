@@ -64,6 +64,25 @@ which is complete.
 - Constants: the leaf, numeric and quantified types; the predicate IRIs `IDENTIFIER`, `SOURCE`, `PUBLISHER`, `EXACT`,
   `CLOSE`, `SEE_ALSO`, `HAS_UNIT`; `DC_DEFAULTS`.
 
+## Reading a record (4.3.0)
+
+`read_record(source, model)` reads a Governed Data Record, the XML instance, and joins each value to the component
+that defines it. `source` is the record's bytes, its text or a path; a record of another model is refused
+(`RecordError`), as is anything that is not an `sdc4:dm-<ct_id>` record.
+
+- **`Record`**: `attributes` (`instance_id`, `instance_version`, `creation_timestamp`, `current-state`, ...),
+  `values` in document order, and `exceptional`, the values that carry an Exceptional Value.
+- **`RecordValue`**: the `component`, its `path` of clusters (root first), an `occurrence` index for a component
+  repeated under the same path, its `position`, its `elements` as the record holds them (a quantity's units nested:
+  `{"xdquantity-value": "1", "xdquantity-units": {"label": "Trade Units", "xdstring-value": "EA"}}`), and its
+  `context` (`act`, `vtb`, `vte`, `tr`, `modified`, `latitude`, `longitude`).
+- **`ExceptionalValue`**: the ISO 21090 null flavor (`code`, `name`) and its `origin`: `source` when it stands in
+  place of the value, `recovery` when sdcvalidator's recovery inserted it beside a value that failed its constraint.
+  For `recovery`, `RecordValue.rejected` is that value, kept so a person can see it.
+
+Cluster members sit inside adapter elements that are not components of the model; the reader passes through them.
+It does not type, validate or interpret values: that is the caller's work (a mapper, an exporter, a checker).
+
 ## MCP server
 
 `sdcreader` is also an MCP server, registered as `io.github.SemanticDataCharter/sdcreader`, so an assistant can read a
@@ -82,8 +101,9 @@ uvx sdcreader --host https://your-sdcstudio.example   # a sovereign SDCStudio's 
 | `list_leaves` | the leaves in document order with path, type, constraints, code count and identity links, paged |
 | `list_codes` | one component's enumerated values with IRI, definition and code system |
 | `check_package` | the reader's integrity check on a package directory |
+| `read_record` | a Governed Data Record on disk read against its model: attributes, then each value with its component, path, elements, context and Exceptional Value, paged; the model is the one the record names unless a source is given |
 
-Each tool takes a `ct_id` (fetched from the host the server was started with) or a package `directory` on disk.
+Each model tool takes a `ct_id` (fetched from the host the server was started with) or a package `directory` on disk.
 No tool takes a URL: the host is fixed at start, so a caller cannot point the server elsewhere. Every tool calls the
 same functions as the library; the two interfaces describe one model the same way.
 

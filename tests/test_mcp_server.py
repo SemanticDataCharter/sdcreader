@@ -1,4 +1,4 @@
-"""The MCP server: JSON-RPC 2.0 handling and the five read-only tools, offline against the NHANES fixture."""
+"""The MCP server: JSON-RPC 2.0 handling and the six read-only tools, offline against the NHANES and Halvorsen fixtures."""
 import json
 from pathlib import Path
 
@@ -60,9 +60,10 @@ class TestProtocol:
     def test_initialized_notification_has_no_response(self):
         assert _handle_request({"jsonrpc": "2.0", "method": "notifications/initialized"}) is None
 
-    def test_tools_list_names_the_five_tools_with_schemas(self):
+    def test_tools_list_names_the_six_tools_with_schemas(self):
         tools = rpc("tools/list", {})["result"]["tools"]
-        assert {t["name"] for t in tools} == {"find_models", "describe_model", "list_leaves", "list_codes", "check_package"}
+        assert {t["name"] for t in tools} == {"find_models", "describe_model", "list_leaves", "list_codes", "check_package",
+                                             "read_record"}
         assert set(TOOL_HANDLERS) == {t["name"] for t in TOOLS}
         for t in tools:
             assert t["inputSchema"]["type"] == "object"
@@ -174,3 +175,31 @@ class TestTools:
 def test_find_models_against_production():
     r = call_ok("find_models", {"project": "FAIR Data Demo", "page_size": 3})
     assert r["count"] >= 1 and r["models"][0]["project"] == "FAIR Data Demo"
+
+
+HALVORSEN = Path(__file__).resolve().parents[1] / "samples" / "halvorsen-credit-note"
+HALVORSEN_CT = "jkuyr38hydqaiwlq5vhp2rjr"
+
+
+class TestReadRecord:
+    def test_reads_a_record_against_a_package_directory(self):
+        out = call_ok("read_record", {"record": str(HALVORSEN / "record.xml"), "directory": str(HALVORSEN), "limit": 5})
+        assert out["ct_id"] == HALVORSEN_CT and out["attributes"]["dm-label"] == "Credit Note"
+        assert out["returned"] == 5 and out["total"] > 5 and out["next_offset"] == 5 and out["exceptional"] == 0
+        v = out["values"][0]
+        assert v["path"][0] == "Credit Note Governed Record" and v["elements"] and v["exceptional"] is None
+
+    def test_the_model_comes_from_the_record_when_no_source_is_given(self, monkeypatch):
+        from sdcreader.package import load_package
+        asked = []
+        monkeypatch.setattr(srv, "fetch_package", lambda ct_id, host=None: asked.append(ct_id) or load_package(HALVORSEN, ct_id))
+        monkeypatch.setattr(srv, "_CACHE", {})
+        out = call_ok("read_record", {"record": str(HALVORSEN / "record.xml"), "limit": 1})
+        assert asked == [HALVORSEN_CT] and out["ct_id"] == HALVORSEN_CT
+
+    def test_a_record_of_another_model_is_a_tool_error(self):
+        text = call_err("read_record", {"record": str(HALVORSEN / "record.xml"), "directory": str(SAMPLE)})
+        assert "not " + CT in text
+
+    def test_a_missing_file_is_a_tool_error(self, tmp_path):
+        assert "Could not read the record" in call_err("read_record", {"record": str(tmp_path / "none.xml")})
