@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sdcreader"
-version = "4.4.0"
+version = "4.4.1"
 description = "Read a published Semantic Data Charter model's package for projection into other standards (CDIF, DCAT-US, DCAT-AP, HealthDCAT-AP); MCP server included."
 readme = "README.md"
 requires-python = ">=3.10"
