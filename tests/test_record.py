@@ -145,3 +145,26 @@ def test_recovery_is_recognized_for_every_value_element(model, sdc_type, value_e
     comp = Component(ct_id="x", sdc_type=sdc_type, label="L", description="", data_type="", constraints={}, links={})
     v = _value(el, comp, [], 0, 0)
     assert v.exceptional.origin == "recovery" and v.rejected == {value_el: "bad"}
+
+
+def test_cluster_instances_number_repeats_under_the_same_parent(model):
+    """4.4.0: a cluster repeated under the same parent instance is numbered, and every value in it carries the number,
+    so a mapper can write one target element per instance."""
+    tree = etree.parse(str(RECORD))
+    _, comp = _first_string(tree)
+    cluster = comp.getparent().getparent()                   # the cluster holding the first value (through its adapter)
+    twin = etree.fromstring(etree.tostring(cluster))
+    cluster.addnext(twin)
+    r = read_record(etree.tostring(tree), model)
+    ct = comp.tag.split("ms-", 1)[1]
+    first, second = [v for v in r.values if v.component.ct_id == ct][:2]
+    assert first.path == second.path
+    assert first.instances[-1] == 0 and second.instances[-1] == 1
+    assert first.instance_key != second.instance_key
+    assert first.occurrence == second.occurrence == 0, "occurrence counts within a cluster instance"
+
+
+def test_every_value_has_an_instance_number_per_cluster_in_its_path(model):
+    r = read_record(RECORD, model)
+    assert all(len(v.instances) == len(v.path) for v in r.values)
+    assert all(v.instance_key[0] == (model.root.ct_id, 0) for v in r.values)

@@ -71,12 +71,21 @@ class ExceptionalValue:
 class RecordValue:
     component: Component
     path: list[Component]          # the clusters above it, root first
-    occurrence: int                # 0 for the first time this component appears under this path, 1 for the next, ...
+    occurrence: int                # 0 for the first time this component appears in its cluster instance, 1 for the next
     position: int                  # document order among the record's values, 0-based
     elements: dict                 # the value elements as the record holds them: name -> text, or name -> dict for a
                                    # nested element (a quantity's units: {"label": "Trade Units", "xdstring-value": "EA"})
     context: dict[str, str]        # act, vtb, vte, tr, modified, latitude, longitude, where present
     exceptional: ExceptionalValue | None = None
+    instances: tuple[int, ...] = ()   # parallel to `path`: which occurrence each cluster is among the same cluster's
+                                      # repeats under the same parent instance (4.4.0). Two lines of one Line cluster
+                                      # in one Lines cluster are (..., 0) and (..., 1).
+
+    @property
+    def instance_key(self) -> tuple[tuple[str, int], ...]:
+        """The value's cluster instance, root first: (ct_id, occurrence) for every cluster above it. Values with equal
+        keys belong to the same cluster instance; a mapper writes one target element per key."""
+        return tuple(zip((c.ct_id for c in self.path), self.instances))
 
     @property
     def rejected(self) -> dict:
@@ -147,9 +156,11 @@ def read_record(source: bytes | str | Path, model: Model) -> Record:
             attributes[n] = _text(el)
 
     record = Record(model=model, attributes=attributes)
-    seen: dict[tuple, int] = {}
+    seen: dict[tuple, int] = {}       # leaf occurrences, per cluster instance
+    clusters: dict[tuple, int] = {}   # cluster occurrences, per parent cluster instance
 
-    def walk(el, path: list[Component]):
+    def walk(el, path: list[Component], instances: tuple[int, ...]):
+        parent = tuple(zip((c.ct_id for c in path), instances))
         for child in el:
             if not _is_sdc4(child):
                 continue
@@ -158,16 +169,21 @@ def read_record(source: bytes | str | Path, model: Model) -> Record:
                 continue
             comp = model.components.get(n[3:])
             if comp is None:                     # an adapter: pass through to the component inside
-                walk(child, path)
+                walk(child, path, instances)
             elif comp.sdc_type == "Cluster" or comp.sdc_type not in LEAF_TYPES:
-                walk(child, path + [comp])       # a cluster, or a structural component (audit, party, ...) holding values
+                key = (parent, comp.ct_id)       # a cluster, or a structural component (audit, party, ...) holding values
+                k = clusters.get(key, 0)
+                clusters[key] = k + 1
+                walk(child, path + [comp], instances + (k,))
             else:
-                key = (comp.ct_id, tuple(c.ct_id for c in path))
+                key = (comp.ct_id, parent)
                 occurrence = seen.get(key, 0)
                 seen[key] = occurrence + 1
-                record.values.append(_value(child, comp, path, occurrence, len(record.values)))
+                v = _value(child, comp, path, occurrence, len(record.values))
+                v.instances = instances
+                record.values.append(v)
 
-    walk(root, [])
+    walk(root, [], ())
     return record
 
 

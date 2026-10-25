@@ -311,7 +311,8 @@ def _handle_read_record(args: dict[str, Any]) -> Any:
     values = [
         {
             "position": v.position, "ct_id": v.component.ct_id, "label": v.component.label, "sdc_type": v.component.sdc_type,
-            "path": [p.label for p in v.path], "occurrence": v.occurrence, "elements": v.elements, "context": v.context,
+            "path": [p.label for p in v.path], "instances": list(v.instances), "occurrence": v.occurrence,
+            "elements": v.elements, "context": v.context,
             "exceptional": ({"code": v.exceptional.code, "name": v.exceptional.name, "origin": v.exceptional.origin}
                             if v.exceptional else None),
         }
