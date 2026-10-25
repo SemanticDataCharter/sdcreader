@@ -3,6 +3,15 @@
 Versions carry the leading 4 of the SDC4 reference model: an addition to what the reader exposes is a minor version, a
 fix a patch, and the major changes only when the reference model does.
 
+## 4.4.0 (2026-10-25)
+
+Cluster instances. Every `RecordValue` carries `instances`, parallel to its `path`: which occurrence each cluster is
+among the same cluster's repeats under the same parent instance; `instance_key` pairs them with the clusters'
+identifiers. A record-level mapper writes one target element per cluster instance (one UBL `InvoiceLine` per line)
+and could not tell two repeats of a cluster under the same parent apart before. **Changed:** `occurrence` now counts a
+value's repeats within its cluster instance, not across every instance under the same path, so the second line's first
+value is occurrence 0 of instance 1 rather than occurrence 1. The MCP tool `read_record` reports `instances`.
+
 ## 4.3.1 (2026-10-24)
 
 Fix: a recovery Exceptional Value beside an ordinal, a link, a file or an interval was read as one written at the

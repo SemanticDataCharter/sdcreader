@@ -72,8 +72,10 @@ that defines it. `source` is the record's bytes, its text or a path; a record of
 
 - **`Record`**: `attributes` (`instance_id`, `instance_version`, `creation_timestamp`, `current-state`, ...),
   `values` in document order, and `exceptional`, the values that carry an Exceptional Value.
-- **`RecordValue`**: the `component`, its `path` of clusters (root first), an `occurrence` index for a component
-  repeated under the same path, its `position`, its `elements` as the record holds them (a quantity's units nested:
+- **`RecordValue`**: the `component`, its `path` of clusters (root first), `instances` parallel to the path (which
+  occurrence each cluster is among the same cluster's repeats under the same parent; `instance_key` pairs them with the
+  clusters' identifiers, one key per cluster instance), an `occurrence` index for a component repeated within its
+  cluster instance, its `position`, its `elements` as the record holds them (a quantity's units nested:
   `{"xdquantity-value": "1", "xdquantity-units": {"label": "Trade Units", "xdstring-value": "EA"}}`), and its
   `context` (`act`, `vtb`, `vte`, `tr`, `modified`, `latitude`, `longitude`).
 - **`ExceptionalValue`**: the ISO 21090 null flavor (`code`, `name`) and its `origin`: `source` when it stands in
