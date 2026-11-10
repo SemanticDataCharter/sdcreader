@@ -109,6 +109,8 @@ Each model tool takes a `ct_id` (fetched from the host the server was started wi
 No tool takes a URL: the host is fixed at start, so a caller cannot point the server elsewhere. Every tool calls the
 same functions as the library; the two interfaces describe one model the same way.
 
+Also listed on [mcprush](https://mcprush.com/semanticdatacharter/sdcreader-mcp).
+
 ## Tests
 
 ```
