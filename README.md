@@ -85,6 +85,25 @@ that defines it. `source` is the record's bytes, its text or a path; a record of
 Cluster members sit inside adapter elements that are not components of the model; the reader passes through them.
 It does not type, validate or interpret values: that is the caller's work (a mapper, an exporter, a checker).
 
+## The reference-model parts (4.5.0)
+
+`read_record(source, model, reference_model=True)` also reads what the SDC4 reference model puts at DM level beyond the
+data cluster: the `subject` and `provider` Parties, the Participations (`performer`, `function`, `mode`, `start`,
+`end`), `protocol`, `workflow`, `acs`, the Audits (`system-id`, `system-user`, `location`, `timestamp`) and the
+`attestation` (`view`, `proof`, `reason`, `committer`, `committed`, `pending`), with each Party's `party-name`,
+`party-ref` and `party-details`. Without the flag a record reads exactly as before.
+
+- A value is read against the component the generated schema types its element by, so a Party's details cluster and
+  its components carry the same identifiers as anywhere else. Where the schema leaves the reference model's own type
+  (a DM's subject, provider and attestation), the record's label names the component; where nothing does, the reader
+  makes one whose ct_id is the element's name (`rm_component`). A simple-typed element (`start`, `committed`,
+  `pending`, `party-name`) is read as the value type that holds the same thing (XdTemporal, XdBoolean, XdString).
+- `RecordValue.roles`, parallel to `path`, and `RecordValue.role` name the reference-model element each step and the
+  value stand in: a Patient's given name is `path` Patient / Patient details / Human Name with `roles`
+  `("subject", "party-details", "")`; a Participation's start has `role` `"start"`. `Record.parts` lists these values.
+- `Model.slots` holds what the schema declares for the DM and for each Party, Participation, Attestation and Audit;
+  `Model.part_leaves()` lists the parts' leaves, and `Model.unplaced_parties` the Parties a subject or provider can be.
+
 ## MCP server
 
 `sdcreader` is also an MCP server, registered as `io.github.SemanticDataCharter/sdcreader`, so an assistant can read a
@@ -99,11 +118,11 @@ uvx sdcreader --host https://your-sdcstudio.example   # a sovereign SDCStudio's 
 | Tool | Does |
 |---|---|
 | `find_models` | search the public catalog by text, or list a public project's models by name |
-| `describe_model` | one model: title, project, root record, leaf and component counts by type, Dublin Core with SDCStudio's defaults as null, the schema URL pinned to its SHA-256 |
-| `list_leaves` | the leaves in document order with path, type, constraints, code count and identity links, paged |
+| `describe_model` | one model: title, project, root record, leaf and component counts by type, Dublin Core with SDCStudio's defaults as null, the schema URL pinned to its SHA-256, and its reference-model parts (4.5.0) |
+| `list_leaves` | the leaves in document order with path, type, constraints, code count and identity links, paged; with `parts`, the reference-model parts' leaves with their `roles` |
 | `list_codes` | one component's enumerated values with IRI, definition and code system |
 | `check_package` | the reader's integrity check on a package directory |
-| `read_record` | a Governed Data Record on disk read against its model: attributes, then each value with its component, path, elements, context and Exceptional Value, paged; the model is the one the record names unless a source is given |
+| `read_record` | a Governed Data Record on disk read against its model: attributes, then each value with its component, path, elements, context and Exceptional Value, paged; the model is the one the record names unless a source is given; with `reference_model`, the reference-model parts too |
 
 Each model tool takes a `ct_id` (fetched from the host the server was started with) or a package `directory` on disk.
 No tool takes a URL: the host is fixed at start, so a caller cannot point the server elsewhere. Every tool calls the
