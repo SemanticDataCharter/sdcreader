@@ -14,6 +14,19 @@ its constraint, which stays in the record; the reader keeps that value, marked a
 
 The reader keeps every value element's text as the record holds it. It does not type values, validate them or know
 any target; that is the reader's caller's work.
+
+Since 4.5.0, `read_record(..., reference_model=True)` also reads the reference-model parts beyond the data cluster:
+the DM's subject and providers (Parties), its Participations (performer, function, mode, start, end), protocol,
+workflow, acs, Audits (system-id, system-user, location, timestamp) and attestation (view, proof, reason, committer,
+committed, pending), and every Party's name, reference and details cluster. These are named elements of the reference
+model (`<subject>`, `<performer>`, `<party-details>`), not `sdc4:ms-<ct_id>` elements, so a value inside them is read
+against the component the schema types the element by (a Participation's performer, a Party's details cluster), or,
+where the schema leaves the reference model's own type, the component the record's label names (SDCStudio declares
+the DM's subject, provider and attestation as `sdc4:PartyType` and `sdc4:AttestationType`). Where neither names one,
+the reader makes a component for the element (`sdcreader.model.rm_component`) whose ct_id is the element's name. Each
+value's `roles` say which reference-model element each step of its path stands in, so a caller tells the subject's
+details from the provider's even where both use one Party component. Without `reference_model` the reader reads
+exactly what 4.4 read.
 """
 from __future__ import annotations
 
@@ -22,7 +35,7 @@ from pathlib import Path
 
 from lxml import etree
 
-from .model import LEAF_TYPES, SDC4, Component, Model
+from .model import LEAF_TYPES, RM_SLOTS, SDC4, SIMPLE_KINDS, STRUCTURAL, Component, Model, rm_component
 
 #: ISO 21090 null flavors, as the SDC4 reference model names its Exceptional Value elements.
 EXCEPTIONAL_VALUES = {
@@ -80,6 +93,10 @@ class RecordValue:
     instances: tuple[int, ...] = ()   # parallel to `path`: which occurrence each cluster is among the same cluster's
                                       # repeats under the same parent instance (4.4.0). Two lines of one Line cluster
                                       # in one Lines cluster are (..., 0) and (..., 1).
+    roles: tuple[str, ...] = ()       # parallel to `path`: the reference-model element each step stands in ("subject",
+                                      # "party-details", "performer"), "" for an sdc4:ms-<ct_id> element (4.5.0)
+    role: str = ""                    # the reference-model element the value stands in ("function", "start",
+                                      # "party-name"), "" for an sdc4:ms-<ct_id> element (4.5.0)
 
     @property
     def instance_key(self) -> tuple[tuple[str, int], ...]:
@@ -98,6 +115,13 @@ class Record:
     model: Model
     attributes: dict[str, str]
     values: list[RecordValue] = field(default_factory=list)
+    reference_model: bool = False     # read with the reference-model parts beyond the data cluster (4.5.0)
+
+    @property
+    def parts(self) -> list[RecordValue]:
+        """The values read from the reference-model parts beyond the data cluster (4.5.0): those under a named
+        reference-model element, or one themselves."""
+        return [v for v in self.values if v.role or any(v.roles)]
 
     @property
     def instance_id(self) -> str:
@@ -128,8 +152,10 @@ def _nested(el) -> dict | str:
     return {_local(c.tag): _nested(c) for c in kids}
 
 
-def read_record(source: bytes | str | Path, model: Model) -> Record:
+def read_record(source: bytes | str | Path, model: Model, reference_model: bool = False) -> Record:
     """Read a Governed Data Record (XML) and join it to the model it names.
+
+    With `reference_model`, also read the reference-model parts beyond the data cluster (see the module's docstring).
 
     `source` is the record's bytes, its text, or a path to it. The record's root must be `sdc4:dm-<ct_id>` for the
     model's ct_id; a record of another model is refused rather than read against the wrong definitions.
@@ -155,36 +181,109 @@ def read_record(source: bytes | str | Path, model: Model) -> Record:
         if n in RECORD_ATTRIBUTES:
             attributes[n] = _text(el)
 
-    record = Record(model=model, attributes=attributes)
+    record = Record(model=model, attributes=attributes, reference_model=reference_model)
+    for el, comp, path, roles, instances, occurrence, role, simple in walk_values(root, model, reference_model):
+        if simple:
+            v = _simple(el, comp, path, occurrence, len(record.values))
+        else:
+            v = _value(el, comp, path, occurrence, len(record.values))
+        v.instances, v.roles, v.role = instances, roles, role
+        record.values.append(v)
+    return record
+
+
+def _label(el) -> str:
+    for c in el:
+        if _local(c.tag) == "label":
+            return _text(c)
+    return ""
+
+
+def walk_values(root, model: Model, reference_model: bool = False):
+    """Every value element of a record, in document order, as the reader numbers them: (element, component, path,
+    roles, instances, occurrence, role, simple), `simple` for a reference-model element of a simple type (a
+    Participation's start) rather than a value type. `read_record` reads these; a caller holding the record's tree (a validation
+    gate placing the Exceptional Values it inserted) numbers its elements by them. Works on lxml and ElementTree."""
     seen: dict[tuple, int] = {}       # leaf occurrences, per cluster instance
     clusters: dict[tuple, int] = {}   # cluster occurrences, per parent cluster instance
+    made: dict[tuple, Component] = {}  # components made for reference-model elements the schema types by none
 
-    def walk(el, path: list[Component], instances: tuple[int, ...]):
+    def slot_component(owner_ct: str, name: str, kind: str, el) -> Component:
+        declared = model.slots.get(owner_ct, {}).get(name, "")
+        comp = model.components.get(declared)
+        if comp is not None:
+            return comp
+        label = _label(el)
+        if kind in ("Party", "Attestation", "Cluster") and label:
+            found = [c for c in model.components.values() if c.sdc_type == kind and c.label == label]
+            if len(found) > 1 and kind == "Party":
+                placed = model.placed
+                found = [c for c in found if c.ct_id not in placed] or found
+            if len(found) > 1 and kind == "Party":
+                details = next((c for c in el if _local(c.tag) == "party-details"), None)
+                dl = _label(details) if details is not None else ""
+                found = [c for c in found if (d := model.slot_component(c.ct_id, "party-details")) is not None and d.label == dl] or found
+            if len(found) > 1 and kind == "Cluster":
+                members = {_local(c.tag)[3:] for c in el if _is_sdc4(c) and _local(c.tag).startswith("ms-")}
+                found = [c for c in found if members <= set(c.contains)] or found
+            if len(found) == 1:
+                return found[0]
+        key = (name, kind, label)
+        if key not in made:
+            made[key] = rm_component(name, kind, label)
+        return made[key]
+
+    def walk(el, path: list[Component], instances: tuple[int, ...], roles: tuple[str, ...], owner_type: str, owner_ct: str):
         parent = tuple(zip((c.ct_id for c in path), instances))
         for child in el:
-            if not _is_sdc4(child):
+            if not isinstance(child.tag, str):
                 continue
             n = _local(child.tag)
-            if not n.startswith("ms-"):
+            if _is_sdc4(child):
+                if not n.startswith("ms-"):
+                    continue
+                comp = model.components.get(n[3:])
+                if comp is None:                     # an adapter: pass through to the component inside
+                    yield from walk(child, path, instances, roles, owner_type, owner_ct)
+                elif comp.sdc_type == "Cluster" or comp.sdc_type not in LEAF_TYPES:
+                    key = (parent, comp.ct_id)       # a cluster, or a structural component (audit, party, ...) holding values
+                    k = clusters.get(key, 0)
+                    clusters[key] = k + 1
+                    yield from walk(child, path + [comp], instances + (k,), roles + ("",), comp.sdc_type, comp.ct_id)
+                else:
+                    key = (comp.ct_id, parent)
+                    occurrence = seen.get(key, 0)
+                    seen[key] = occurrence + 1
+                    yield child, comp, path, roles, instances, occurrence, "", False
                 continue
-            comp = model.components.get(n[3:])
-            if comp is None:                     # an adapter: pass through to the component inside
-                walk(child, path, instances)
-            elif comp.sdc_type == "Cluster" or comp.sdc_type not in LEAF_TYPES:
-                key = (parent, comp.ct_id)       # a cluster, or a structural component (audit, party, ...) holding values
+            # a named reference-model element: read only when asked, and only where the reference model puts it
+            kind = RM_SLOTS.get(owner_type, {}).get(n) if reference_model and "}" not in child.tag else None
+            if kind is None:
+                continue
+            comp = slot_component(owner_ct, n, kind, child)
+            if kind in STRUCTURAL:
+                key = (parent, comp.ct_id)
                 k = clusters.get(key, 0)
                 clusters[key] = k + 1
-                walk(child, path + [comp], instances + (k,))
+                yield from walk(child, path + [comp], instances + (k,), roles + (n,), kind, comp.ct_id)
             else:
                 key = (comp.ct_id, parent)
                 occurrence = seen.get(key, 0)
                 seen[key] = occurrence + 1
-                v = _value(child, comp, path, occurrence, len(record.values))
-                v.instances = instances
-                record.values.append(v)
+                yield child, comp, path, roles, instances, occurrence, n, kind in SIMPLE_KINDS
 
-    walk(root, [], ())
-    return record
+    yield from walk(root, [], (), (), "DM", model.ct_id)
+
+
+def _simple(el, comp: Component, path: list[Component], occurrence: int, position: int) -> RecordValue:
+    """A reference-model element of a simple type (a Participation's start, an Attestation's pending, a Party's name),
+    read as the value type that holds the same thing: its text in that type's value element."""
+    text = _text(el)
+    if comp.sdc_type == "XdBoolean":
+        elements = {"true-value" if text in ("true", "1") else "false-value": text}
+    else:
+        elements = {next(v for t, v in SIMPLE_KINDS.values() if t == comp.sdc_type): text}
+    return RecordValue(component=comp, path=path, occurrence=occurrence, position=position, elements=elements, context={})
 
 
 def _value(el, comp: Component, path: list[Component], occurrence: int, position: int) -> RecordValue:

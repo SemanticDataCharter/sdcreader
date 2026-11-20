@@ -3,6 +3,44 @@
 Versions carry the leading 4 of the SDC4 reference model: an addition to what the reader exposes is a minor version, a
 fix a patch, and the major changes only when the reference model does.
 
+## 4.5.0 (2026-11-20)
+
+The reference-model parts beyond the data cluster. 4.4 read only the DM's data cluster, so a record's subject, its
+providers, its Participations, its workflow and its attestation reached no caller, and no mapper could write a FHIR
+Composition's author or subject from an SDCHealth record. Everything here is opt-in: without the new flag a record reads
+exactly as in 4.4, value for value.
+
+- **`read_record(source, model, reference_model=True)`** also reads, where the SDC4 reference model puts them, the DM's
+  `subject` and `provider` (Parties), its Participations (`performer`, `function`, `mode`, `start`, `end`), `protocol`,
+  `workflow`, `acs`, Audits (`system-id`, `system-user`, `location`, `timestamp`) and `attestation` (`view`, `proof`,
+  `reason`, `committer`, `committed`, `pending`), and every Party's `party-name`, `party-ref` and `party-details`.
+  A value inside one of these is read against the component the generated schema types its element by (a
+  Participation's performer, a Party's details cluster, a Participation's function), so a caller names a Party's
+  details and their components by the same identifiers as data-cluster components. Where the schema leaves the
+  reference model's own type (SDCStudio declares a DM's subject, provider and attestation as `sdc4:PartyType` and
+  `sdc4:AttestationType`), the component is the one the record's label names; where nothing names one, the reader
+  makes a component for the element (`rm_component`), whose ct_id is the element's name. An element of a simple type is
+  read as the value type that holds the same thing: a Participation's `start` as an XdTemporal datetime, an
+  Attestation's `pending` as an XdBoolean, a Party's `party-name` as an XdString. Exceptional Values are read as in the
+  data cluster.
+- **`RecordValue.roles`** (parallel to `path`) and **`RecordValue.role`** name the reference-model element each step of a
+  value's path, and the value itself, stands in (`("subject", "party-details", "")`, `"start"`), so a caller tells the
+  subject's details from the provider's, or the Attester's from the Legal Authenticator's, where one details cluster
+  serves several Parties. `Record.reference_model` and `Record.parts`.
+- **`walk_values(root, model, reference_model)`**: the reader's own walk over a record's value elements, in the order it
+  numbers them, for a caller holding the tree (sdc-mapper's gate places the Exceptional Values it inserts by it).
+- **`Model.slots`**: the reference-model elements the schema declares for the DM and for each Party, Participation,
+  Attestation and Audit, each naming the component its type is or the reference model's own type;
+  `slot_component()`, `placed`, `unplaced_parties` (the Parties a record's subject or provider can be), and
+  `part_leaves()`, the parts' leaves with their `roles`. `RM_SLOTS`, `RM_PARTS` and `RM_ELEMENTS` name the elements.
+- **Fix: `Model.root` is the data cluster the DM's complexType names.** 4.4 took the largest cluster no other contains,
+  which in an SDCHealth model is a Patient's details cluster. Of the 36 packages on disk across the projection and
+  mapper repositories, only the SDCHealth Laboratory Report's root changes.
+- **MCP:** `describe_model` reports the reference-model parts (`reference_model`); `list_leaves` takes `parts` to list
+  their leaves with `roles`; `read_record` takes `reference_model` and then reports `path_ct_ids`, `roles`, `role` and
+  `parts`. The tool set is unchanged.
+- Fixture: the SDCHealth Laboratory Report package (production, public) and two synthetic records of it.
+
 ## 4.4.1 (2026-10-25)
 
 Rebuilt with pip 26.2.2 pinned by hash in CI and the release job (the eMudhra/emSign CA compromise: pip before 26.2.2 trusts the compromised root through its vendored certifi). No change to the package.

@@ -20,6 +20,12 @@ reader's integrity check on a package directory. `read_record` (4.3.0) reads a
 Governed Data Record on disk against its model: the record's attributes and
 each value with its component, paged, Exceptional Values included.
 
+Since 4.5.0 the reference-model parts beyond the data cluster (subject,
+providers, Participations, workflow, Audits, attestation) reach the same tools:
+`describe_model` reports the elements the schema declares for them,
+`list_leaves` with `parts` lists their leaves, and `read_record` with
+`reference_model` reads them.
+
 **No tool takes a URL.** The catalog host is fixed when the server starts
 (`--host`, default SDCStudio's public catalog), so a caller cannot point this
 server at an arbitrary host. A tool takes either a model identifier, fetched
@@ -88,7 +94,10 @@ TOOLS = [
             "record, how many leaves and components it has and of which types, its "
             "Dublin Core as the modeler wrote it (defaults reported as null), its "
             "semantic links, and the schema URL pinned to the SHA-256 of the bytes "
-            "every record is validated against."
+            "every record is validated against. Since 4.5.0 also its reference-model "
+            "parts beyond the data cluster: the elements the schema declares for the "
+            "DM and each Party, Participation, Attestation and Audit, and the Parties "
+            "a record's subject or provider can be."
         ),
         "inputSchema": {"type": "object", "properties": source_properties(), "additionalProperties": False},
     },
@@ -97,12 +106,18 @@ TOOLS = [
         "description": (
             "The model's leaves in document order, each with its path of clusters, "
             "its SDC4 type, its constraints, how many enumerated values it has and "
-            "its identity links. Paged: a model can have more than a thousand leaves."
+            "its identity links. Paged: a model can have more than a thousand leaves. "
+            "With parts (4.5.0), the leaves of the reference-model parts beyond the "
+            "data cluster instead: each Party's details, each Participation's and "
+            "Attestation's elements, the workflow, with the reference-model element "
+            "each step stands in."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 **source_properties(),
+                "parts": {"type": "boolean", "default": False,
+                          "description": "List the reference-model parts' leaves rather than the data cluster's."},
                 "offset": {"type": "integer", "minimum": 0, "default": 0},
                 "limit": {"type": "integer", "minimum": 1, "maximum": MAX_PAGE, "default": DEFAULT_PAGE},
             },
@@ -132,12 +147,16 @@ TOOLS = [
             "value in document order with its component, path of clusters, elements, context and any Exceptional "
             "Value (ISO 21090 code, name, and whether it was written at the source or inserted by recovery beside a "
             "rejected value). The model is the one the record names, fetched by its identifier unless ct_id or "
-            "directory is given. Paged. Does not validate the record."
+            "directory is given. Paged. Does not validate the record. With reference_model (4.5.0), also the "
+            "reference-model parts beyond the data cluster: subject, providers, Participations, workflow, Audits "
+            "and attestation, each value with the reference-model element each step of its path stands in."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "record": {"type": "string", "description": "Path to the record's XML file on disk."},
+                "reference_model": {"type": "boolean", "default": False,
+                                    "description": "Also read the reference-model parts beyond the data cluster."},
                 **source_properties(),
                 "offset": {"type": "integer", "minimum": 0, "default": 0},
                 "limit": {"type": "integer", "minimum": 1, "maximum": MAX_PAGE, "default": DEFAULT_PAGE},
@@ -238,8 +257,30 @@ def _handle_describe_model(args: dict[str, Any]) -> Any:
         "leaves": len(model.leaves),
         "leaves_by_type": dict(sorted(by_type.items())),
         "enumerated_components": sum(1 for v in model.codes.values() if v),
+        "reference_model": _reference_model(model),
         "dublin_core": dublin_core,
         "hint": "Dublin Core values are what the modeler wrote; SDCStudio's defaults are reported as null, never as facts.",
+    }
+
+
+def _reference_model(model) -> dict:
+    """The reference-model parts beyond the data cluster, as the schema declares them."""
+    def named(t: str) -> dict:
+        c = model.components.get(t)
+        return {"ct_id": c.ct_id, "label": c.label, "sdc_type": c.sdc_type} if c else {"rm_type": t}
+    owners = {}
+    for owner, slots in model.slots.items():
+        c = model.components.get(owner)
+        owners[owner] = {"label": c.label if c else model.title, "sdc_type": c.sdc_type if c else "DM",
+                         "elements": {name: named(t) for name, t in slots.items()}}
+    return {
+        "data_cluster": model.root.ct_id,
+        "parts": owners,
+        "unplaced_parties": [{"ct_id": c.ct_id, "label": c.label} for c in model.unplaced_parties],
+        "part_leaves": len(model.part_leaves()),
+        "hint": ("An element typed by a component is named in a mapping rule by its ct_id; one left as the reference "
+                 "model's own type (subject and provider as sdc4:PartyType) is the component the record's label names, "
+                 "one of unplaced_parties. Read a record with reference_model to reach these parts."),
     }
 
 
@@ -247,19 +288,25 @@ def _handle_list_leaves(args: dict[str, Any]) -> Any:
     pkg, model = _cache().one(args)
     offset = int_arg(args, "offset", 0, 0, 10_000_000)
     limit = int_arg(args, "limit", DEFAULT_PAGE, 1, MAX_PAGE)
-    page = model.leaves[offset : offset + limit]
-    leaves = [
-        {
+    parts = args.get("parts", False)
+    if not isinstance(parts, bool):
+        raise ToolError("`parts` must be a boolean.")
+    all_leaves = model.part_leaves() if parts else model.leaves
+    page = all_leaves[offset : offset + limit]
+    leaves = []
+    for leaf in page:
+        row = {
             "position": leaf.position, "slug": leaf.slug, "ct_id": leaf.component.ct_id, "label": leaf.component.label,
             "sdc_type": leaf.component.sdc_type, "data_type": leaf.component.data_type, "path": [p.label for p in leaf.path],
             "description": leaf.component.description, "constraints": leaf.component.constraints,
             "codes": len(model.codes.get(leaf.component.ct_id, [])), "links": _links(leaf.component),
         }
-        for leaf in page
-    ]
+        if parts:
+            row.update(path_ct_ids=[p.ct_id for p in leaf.path], roles=list(leaf.roles), role=leaf.role)
+        leaves.append(row)
     return {
-        "ct_id": model.ct_id, "title": model.title, "total": len(model.leaves), "offset": offset, "limit": limit,
-        "returned": len(leaves), "next_offset": offset + limit if offset + limit < len(model.leaves) else None, "leaves": leaves,
+        "ct_id": model.ct_id, "title": model.title, "total": len(all_leaves), "offset": offset, "limit": limit,
+        "returned": len(leaves), "next_offset": offset + limit if offset + limit < len(all_leaves) else None, "leaves": leaves,
     }
 
 
@@ -301,8 +348,11 @@ def _handle_read_record(args: dict[str, Any]) -> Any:
             raise ToolError("The record does not name a model (no sdc4:dm-<ct_id> root); give ct_id or directory.")
         source = {"ct_id": m.group(1).decode()}
     pkg, model = _cache().one(source)
+    rm = args.get("reference_model", False)
+    if not isinstance(rm, bool):
+        raise ToolError("`reference_model` must be a boolean.")
     try:
-        record = read_record(data, model)
+        record = read_record(data, model, reference_model=rm)
     except RecordError as exc:
         raise ToolError(str(exc)) from exc
     offset = int_arg(args, "offset", 0, 0, 10_000_000)
@@ -315,12 +365,14 @@ def _handle_read_record(args: dict[str, Any]) -> Any:
             "elements": v.elements, "context": v.context,
             "exceptional": ({"code": v.exceptional.code, "name": v.exceptional.name, "origin": v.exceptional.origin}
                             if v.exceptional else None),
+            **({"path_ct_ids": [p.ct_id for p in v.path], "roles": list(v.roles), "role": v.role} if rm else {}),
         }
         for v in page
     ]
     return {
         "ct_id": model.ct_id, "title": model.title, "schema_sha256": pkg.sha256, "attributes": record.attributes,
-        "total": len(record.values), "exceptional": len(record.exceptional), "offset": offset, "limit": limit,
+        "total": len(record.values), "exceptional": len(record.exceptional),
+        **({"parts": len(record.parts)} if rm else {}), "offset": offset, "limit": limit,
         "returned": len(values), "next_offset": offset + limit if offset + limit < len(record.values) else None, "values": values,
     }
 
@@ -362,7 +414,9 @@ def _server() -> Server:
             f"the public catalog at {_HOST}; `describe_model`, `list_leaves` and "
             "`list_codes` read one model by its ct_id from that host or from a "
             "package directory on disk; `check_package` verifies a directory; "
-            "`read_record` reads a Governed Data Record on disk against its model. "
+            "`read_record` reads a Governed Data Record on disk against its model "
+            "(with `reference_model`, its subject, providers, Participations, workflow "
+            "and attestation too; `list_leaves` with `parts` lists those parts' leaves). "
             "All tools are read-only and need no account. No tool takes a URL."
         ),
     )
